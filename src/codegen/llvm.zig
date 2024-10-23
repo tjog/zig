@@ -1770,7 +1770,9 @@ pub const Object = struct {
             try o.used.append(gpa, counters_variable.toConst(&o.builder));
             counters_variable.setLinkage(.private, &o.builder);
             counters_variable.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
-            counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
+            const section_name = try getSectionName(gpa, o.target.ofmt, "sancov_cntrs");
+            defer gpa.free(section_name);
+            counters_variable.setSection(try o.builder.string(section_name), &o.builder);
 
             break :f .{
                 .counters_variable = counters_variable,
@@ -1831,11 +1833,27 @@ pub const Object = struct {
             pcs_variable.setLinkage(.private, &o.builder);
             pcs_variable.setMutability(.constant, &o.builder);
             pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
-            pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
+            const section_name = try getSectionName(gpa, o.target.ofmt, "sancov_pcs1");
+            defer gpa.free(section_name);
+            pcs_variable.setSection(try o.builder.string(section_name), &o.builder);
             try pcs_variable.setInitializer(init_val, &o.builder);
         }
 
         try fg.wip.finish();
+    }
+
+    fn getSectionName(gpa: Allocator, ofmt: std.Target.ObjectFormat, short_name: []const u8) Allocator.Error![]const u8 {
+        var buf = try std.ArrayListUnmanaged(u8).initCapacity(gpa, short_name.len + 2);
+        errdefer buf.deinit(gpa);
+
+        if (ofmt == .macho) {
+            try buf.appendSlice(gpa, "__DATA,__");
+        } else {
+            try buf.appendSlice(gpa, "__");
+        }
+        try buf.appendSlice(gpa, short_name);
+
+        return buf.toOwnedSlice(gpa);
     }
 
     pub fn updateNav(self: *Object, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
